@@ -13,13 +13,10 @@
 #include <spot/twaalgos/neverclaim.hh>
 #include <spot/twaalgos/cformat.hh>
 
-#include "format/cformat.h"
+#include <format/cformat.h>
+#include <ui/cli.h>
 
 namespace dipot {
-
-struct Formula {
-    std::string formula;
-};
 
 struct Driver {
     std::vector< std::string > args;
@@ -34,10 +31,15 @@ struct Driver {
     }
 
     auto commands() {
+        // TODO specify validator
         auto v = brick::cmd::make_validator();
+        auto hopts = brick::cmd::make_option_set< Help >( v )
+            .option( "[{string}]", &Help::cmd, "print man to specified command" );
         auto fopts = brick::cmd::make_option_set< Formula >( v )
             .option( "[-f {string}]", &Formula::formula, "ltl formula" );
-        return brick::cmd::make_parser( v ).command< Formula >( fopts );
+        return brick::cmd::make_parser( v )
+            .command< Help >( hopts )
+            .command< Formula >( fopts );
     }
 
     int run() {
@@ -50,13 +52,13 @@ struct Driver {
                 return 0;
             }
 
-     //       cmd.match( [&]( Help & help ) {
-       //                    help.run( cmds );
-         //              },
-           //            [&]( Command & c ) {
-             //              c.setup();
-               //            c.run();
-                 //      } );
+            cmd.match( [&]( Help & help ) {
+                           help.run( cmds );
+                       },
+                       [&]( Command & c ) {
+                           c.setup();
+                           c.run();
+                       } );
             return 0;
         } catch( brick::except::Error &e ) {
             std::cerr << "ERROR: " << e.what() << std::endl;

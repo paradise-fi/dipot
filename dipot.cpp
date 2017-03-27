@@ -1,4 +1,4 @@
-#include "driver.h"
+#include <ui/driver.h>
 
 int main( int argc, char const *argv[] ) {
     dipot::Driver driver( argc, argv );
