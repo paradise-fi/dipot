@@ -6,14 +6,6 @@
 #include <string>
 #include <exception>
 
-#include <spot/tl/parse.hh>
-#include <spot/tl/print.hh>
-#include <spot/misc/version.hh>
-#include <spot/twaalgos/translate.hh>
-#include <spot/twaalgos/neverclaim.hh>
-#include <spot/twaalgos/cformat.hh>
-
-#include <format/cformat.h>
 #include <ui/cli.h>
 
 namespace dipot {
@@ -27,6 +19,9 @@ struct Driver {
 
     template< typename Parser >
     auto parse( Parser p ) {
+        if ( args.size() >= 1 )
+            if ( args[0] == "--help" )
+                args[0] = args[0].substr( 2 );
         return p.parse( args.begin(), args.end() );
     }
 
@@ -35,11 +30,12 @@ struct Driver {
         auto v = brick::cmd::make_validator();
         auto hopts = brick::cmd::make_option_set< Help >( v )
             .option( "[{string}]", &Help::cmd, "print man to specified command" );
-        auto fopts = brick::cmd::make_option_set< Formula >( v )
-            .option( "[-f {string}]", &Formula::formula, "ltl formula" );
-        return brick::cmd::make_parser( v )
-            .command< Help >( hopts )
-            .command< Formula >( fopts );
+        auto fopts = brick::cmd::make_option_set< Automat >( v )
+            .option( "[-p {string}|--property {string}]", &Automat::formula, "ltl property" );
+        auto parser = brick::cmd::make_parser( v )
+            .command< Automat >( fopts )
+            .command< Help >( hopts );
+        return parser;
     }
 
     int run() {
@@ -73,15 +69,3 @@ private :
 };
 
 } // namespace dipot
-
-/*int main( int argc, char **argv ) {
-    const std::string formula = "isZero U isOne";
-    spot::parsed_formula pf = spot::parse_infix_psl(formula);
-    if (pf.format_errors(std::cerr))
-        return 1;
-    spot::translator trans;
-    trans.set_type(spot::postprocessor::BA);
-    spot::twa_graph_ptr aut = trans.run(pf.f);
-    dipot::print_c_format(std::cout, aut);
-    return 0;
-}*/
