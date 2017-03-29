@@ -23,7 +23,6 @@ struct c_format_printer {
 private:
     void print_atomic_propositions( const twa_graph_ptr & aut ) {
         const spot::bdd_dict_ptr & dict = aut->get_dict();
-        out_ << "//Atomic propositions:\n";
         for ( spot::formula ap : aut->ap() )
           out_ << "bool " << ap << "();\n";
         out_ << "\n";
