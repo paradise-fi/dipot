@@ -1,7 +1,6 @@
 #include "cformat.h"
 
 #include <iterator>
-#include <spot/twaalgos/cformat.hh>
 #include <spot/twa/bddprint.hh>
 #include <spot/twa/twagraph.hh>
 #include <spot/tl/print.hh>
