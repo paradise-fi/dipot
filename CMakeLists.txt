@@ -18,10 +18,20 @@ add_library( dipot-format ${CPP_format} )
 install( TARGETS dipot-ui dipot-format DESTINATION lib )
 install( FILES ${HPP} DESTINATION include/dipot )
 
+set( SPOT_LIBRARY_PATH /usr/lib CACHE PATH "path to directory spot libraries reside in" )
 set( LIBRARY_PATH $ENV{LD_LIBRARY_PATH} )
-set( spot ${LIBRARY_PATH}/libspot.a )
-set( bddx ${LIBRARY_PATH}/libbddx.a )
-include_directories( "/usr/local/include/" )
+find_library( LIBSPOT NAMES libspot spot PATHS ${SPOT_LIBRARY_PATH} ${LIBRARY_PATH} )
+find_library( LIBBDDX NAMES libbddx bddx PATHS ${SPOT_LIBRARY_PATH} ${LIBRARY_PATH} )
+if ( NOT LIBBDDX OR NOT LIBSPOT )
+    message( FATAL_ERROR "spot or bddx not found, please specify SPOT_LIBRARY_PATH (and possibly SPOT_INCLUDE_PATH)" )
+endif()
+
+get_filename_component( SPOT_LIB_PREFIX ${LIBSPOT} DIRECTORY )
+get_filename_component( BDDX_LIB_PREFIX ${LIBBDDX} DIRECTORY )
+link_directories( ${SPOT_LIB_PREFIX} ${BDDX_LIB_PREFIX} )
+
+set( SPOT_INCLUDE_PATH ${SPOT_LIB_PREFIX}/../include CACHE PATH "path to spot includes" )
+include_directories( ${SPOT_INCLUDE_PATH} )
 
 include(bricks/support.cmake)
 bricks_check_dirent()
