@@ -56,7 +56,7 @@ private:
     }
 
     void print_state( const unsigned n, const twa_graph_ptr & aut) {
-        out_ << indent() << "case " << n << ":\n";
+        out_ << indent() << "case " << n << ": {\n";
         indent_level++;
 
         bdd all = bddtrue;
@@ -85,6 +85,7 @@ private:
 
         out_ << indent() << "break;\n";
         indent_level--;
+        out_ << indent() << "}\n";
     }
 
     void print_edge( const twa_graph_ptr & aut,
