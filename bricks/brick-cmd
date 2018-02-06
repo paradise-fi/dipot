@@ -19,6 +19,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <deque>
 #include <stack>
 #include <unordered_map>
@@ -26,6 +27,7 @@
 #include <brick-unittest>
 #include <brick-types>
 #include <brick-except>
+#include <brick-string>
 
 namespace brick {
 namespace cmd {
@@ -274,10 +276,12 @@ struct Pattern
         Tokens::iterator next = begin;
         if ( _type == Match && *begin == _text )
             next = begin + 1;
-        if ( _type == Capture && _validator->validate( _capture, *begin ) )
+        while ( _type == Capture && next != end && _validator->validate( _capture, *next ) )
         {
-            capture( _capture_id++, _many, _capture, *begin );
-            next = begin + 1;
+            capture( _capture_id++, _many, _capture, *next );
+            next = next + 1;
+            if ( !_many )
+                break;
         }
         if ( _type == Mixed && begin->find( _text ) == 0 && begin->size() > _text.size() )
         {
@@ -465,7 +469,7 @@ struct Option : OptionInterface< T >
         auto _set( types::NotPreferred, X_ &x, Y y )
             -> typename std::enable_if< std::is_convertible< Y, X_ >::value >::type
         {
-            x = y;
+            x = static_cast< X_ >( y );
         }
 
         template< typename X_, typename Y >
@@ -695,26 +699,53 @@ auto make_option_set( std::shared_ptr< V > v, Args... args )
     return OptionSet< V, T >( v, args... );
 }
 
+template< typename T >
+auto names( types::Preferred ) -> decltype ( T::names() )
+{
+    return T::names();
+}
+
+/* not foolproof, but good enough? will misfire on types nested inside
+ * templates */
+template < typename T >
+std::array< std::string, 1 > names( types::NotPreferred )
+{
+    auto s = brick::unittest::_typeid< T >();
+    size_t p = s.find( "<" );
+    if ( p != std::string::npos )
+        s = std::string( s, 0, p );
+    p = s.rfind( "::" );
+    if ( p != std::string::npos )
+        s = std::string( s, p + 2, std::string::npos );
+    for ( size_t i = 0; i < s.size(); ++i )
+        s[i] = std::tolower( s[i] );
+    return { { s } };
+}
+
+enum class Match { None, Partial, Full };
+
 template< typename Validator, typename T >
 struct Command : OptionSet< Validator, T >
 {
     std::vector< std::string > T::*_extra;
     std::string _description;
 
-    /* not foolproof, but good enough? will misfire on types nested inside
-     * templates */
     std::string name()
     {
-        auto s = brick::unittest::_typeid< T >();
-        size_t p = s.find( "<" );
-        if ( p != std::string::npos )
-            s = std::string( s, 0, p );
-        p = s.rfind( "::" );
-        if ( p != std::string::npos )
-            s = std::string( s, p + 2, std::string::npos );
-        for ( size_t i = 0; i < s.size(); ++i )
-            s[i] = std::tolower( s[i] );
-        return s;
+        return names< T >( types::Preferred() )[ 0 ];
+    }
+
+    Match matches( std::string s )
+    {
+        for ( std::string name : names< T >( types::Preferred() ) )
+            if ( string::startsWith( name, s ) )
+            {
+                if ( name.size() == s.size() )
+                    return Match::Full;
+                else
+                    return Match::Partial;
+            }
+        return Match::None;
     }
 
     virtual std::string describe_header( int setw = 0 )
@@ -775,27 +806,57 @@ struct Parser
 {
     using PT = ParserT< Validator, Ts... >;
     PT _rep;
+    Match _match;
+    bool _failed;
 
     template< typename U >
     auto parse( U &res, Tokens::iterator b, Tokens::iterator e )
     {
-        return parse_rec( _rep, res, b, e );
+        _match = Match::None;
+        _failed = false;
+        return _parse_rec( _rep, res, b, e );
     }
 
     template< typename U >
-    auto parse_rec( ParserT< Validator > &, U &, Tokens::iterator b, Tokens::iterator )
+    auto _parse_rec( ParserT< Validator > &, U &, Tokens::iterator b, Tokens::iterator )
     {
         return b;
     }
 
     template< typename Rec, typename U >
-    auto parse_rec( Rec &rec, U &res, Tokens::iterator b, Tokens::iterator e )
+    auto _parse_rec( Rec &rec, U &res, Tokens::iterator b, Tokens::iterator e )
     {
         if (b == e)
         {
             return b;
         }
-        if ( rec.car.name() == *b )
+
+        Match latest = rec.car.matches( *b );
+
+        switch ( _match )
+        {
+            case Match::Full:
+                if ( latest == Match::Full )
+                    _failed = true;
+                break;
+            case Match::Partial:
+                if ( latest == Match::Full )
+                {
+                    _failed = false;
+                    _match = latest;
+                }
+                else if ( latest == Match::Partial )
+                    _failed = true;
+                break;
+            case Match::None:
+                _match = latest;
+                break;
+        }
+
+        auto rv = _parse_rec( rec.cdr, res, b, e );
+
+        if ( !_failed && ( _match == Match::Full || _match == Match::Partial ) &&
+            rec.car.matches( *b ) == _match )
         {
             typename Rec::Type t;
             auto x = rec.car.parse( t, b + 1, e );
@@ -804,8 +865,7 @@ struct Parser
             res = t;
             return x;
         }
-        else
-            return parse_rec( rec.cdr, res, b, e );
+        return rv;
     }
 
     auto parse( Tokens::iterator b, Tokens::iterator e, std::vector<std::string> &unexpected )
@@ -826,7 +886,12 @@ struct Parser
             std::stringstream extra;
             for (std::string str : unexpected)
                 extra << "'" << str << "' ";
-            throw except::Error( "unexpected options: " + extra.str() );
+            if ( _match == Match::None )
+                throw except::Error( "unknown command, use 'help' for list of available commands" );
+            if ( _failed )
+                throw except::Error( "ambiguous command, use 'help' for list of available commands" );
+            else
+                throw except::Error( "unexpected options: " + extra.str() );
         }
         return _result;
     }
@@ -1031,7 +1096,10 @@ struct TestCmd
         auto opts = cmd::make_option_set< Common >( v )
                     .option( "[-x]", &Common::x )
                     .option( "[-y]", &Common::y );
-        Common c = { .x = false, .y = false };
+
+        Common c;
+        c.x = false;
+        c.y = false;
 
         cmd::Tokens in = { "-x" };
         opts.parse( c, in.begin(), in.end() );
@@ -1047,7 +1115,9 @@ struct TestCmd
                     .option( "[-y]", &Common::y )
                     .option( "[(-a {int}|-b {int})]", &Common::a );
 
-        Common c = { .x = false, .y = false };
+        Common c;
+        c.x = false;
+        c.y = false;
 
         cmd::Tokens in = { "-x", "-b", "10", "-y" };
         opts.parse( c, in.begin(), in.end() );
@@ -1128,7 +1198,7 @@ struct TestCmd
         auto v = validator();
         auto opts = cmd::make_option_set< X >( v )
                     .option( "[-y {int}]", &X::x )
-                    .option( "{string}+", &X::a );
+                    .option( "{string}", &X::a );
         auto p = cmd::make_parser( v ).command< X >( opts );
 
         cmd::Tokens in = { "x", "10", "20" };
@@ -1140,6 +1210,21 @@ struct TestCmd
                      ASSERT_EQ( x.a.size(), 2 );
                  } );
         ASSERT( matched );
+    }
+
+    TEST(multi_capture)
+    {
+        struct X { std::vector< int > a; };
+        auto v = validator();
+        auto opts = cmd::make_option_set< X >( v )
+                    .option( "-y {int}+", &X::a );
+        X x;
+
+        cmd::Tokens in = { "-y", "10", "20" };
+        opts.parse( x, in.begin(), in.end() );
+        ASSERT_EQ( x.a.size(), 2u );
+        ASSERT_EQ( x.a[ 0 ], 10 );
+        ASSERT_EQ( x.a[ 1 ], 20 );
     }
 };
 
